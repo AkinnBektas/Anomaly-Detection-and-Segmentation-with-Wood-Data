@@ -74,17 +74,20 @@ class WoodDataset(Dataset):
 
         if self.is_test_defect and self.ground_truth_dir:
             base_filename = os.path.basename(img_path)
-            mask_filename_png = os.path.splitext(base_filename)[0] + ".png"
-            mask_path_png = os.path.join(self.ground_truth_dir, mask_filename_png)
+            base_name = os.path.splitext(base_filename)[0]
 
-            mask_filename_jpg = os.path.splitext(base_filename)[0] + ".jpg"
-            mask_path_jpg = os.path.join(self.ground_truth_dir, mask_filename_jpg)
+            possible_mask_paths = [
+                os.path.join(self.ground_truth_dir, base_name + ".png"),
+                os.path.join(self.ground_truth_dir, base_name + ".jpg"),
+                os.path.join(self.ground_truth_dir, base_name + "_mask.png"),
+                os.path.join(self.ground_truth_dir, base_name + "_mask.jpg")
+            ]
 
             mask_path = None
-            if os.path.exists(mask_path_png):
-                mask_path = mask_path_png
-            elif os.path.exists(mask_path_jpg):
-                mask_path = mask_path_jpg
+            for possible_path in possible_mask_paths:
+                if os.path.exists(possible_path):
+                    mask_path = possible_path
+                    break
 
             if mask_path:
                 mask = Image.open(mask_path).convert("L") # Gri tonlamalı olarak aç (tek kanal)
@@ -671,6 +674,51 @@ print("\nÇalışma tamamlandı.")
 # import gc
 # gc.collect()
 # torch.cuda.empty_cache()
+
+
+
+
+
+from PIL import Image
+import matplotlib.pyplot as plt
+
+mask_path = os.path.join(ground_truth_dir, "100000020_mask.jpg")
+mask = Image.open(mask_path)
+plt.imshow(mask)
+plt.title("Orijinal Maske Dosyası")
+plt.colorbar()
+plt.show()
+
+# Değer aralığını kontrol et
+mask_array = np.array(mask)
+print(f"Maske değer aralığı: {mask_array.min()} - {mask_array.max()}")
+print(f"Toplam piksel sayısı: {mask_array.size}, Sıfır olmayan piksel sayısı: {np.count_nonzero(mask_array)}")
+
+if mask_path:
+    mask = Image.open(mask_path).convert("L")
+    mask_array = np.array(mask)
+    print(f"Orijinal maske değer aralığı: {mask_array.min()} - {mask_array.max()}")
+
+    # Eğer maske değerleri [0-255] aralığındaysa, normalize etmeyin
+    mask_transform = transforms.Compose([
+        transforms.Resize(IMG_SIZE, interpolation=transforms.InterpolationMode.NEAREST),
+        transforms.ToTensor()
+    ])
+    mask_tensor = mask_transform(mask)
+
+    # 0.1 gibi daha düşük bir eşik deneyin
+    mask_tensor = (mask_tensor > 0.1).float()
+
+test_defect_paths_sample = test_defect_paths[:5]  # İlk 5 örnek
+for img_path in test_defect_paths_sample:
+    base_filename = os.path.basename(img_path)
+    mask_path = os.path.join(ground_truth_defect_dir, os.path.splitext(base_filename)[0] + "_mask.jpg")
+
+    if os.path.exists(mask_path):
+        mask = np.array(Image.open(mask_path).convert("L"))
+        print(f"{os.path.basename(mask_path)}: Min={mask.min()}, Max={mask.max()}, NonZero={np.count_nonzero(mask)}/{mask.size}")
+    else:
+        print(f"{os.path.basename(img_path)} için maske bulunamadı.")
 
 # ========================== IoU DEBUG İÇİN EK ANALİZ ==========================
 
