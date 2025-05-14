@@ -37,6 +37,8 @@ BATCH_SIZE = 16 # Bellek durumuna göre ayarlanabilir
 EPOCHS = 50 # Örnek bir değer, model ve veri setine göre ayarlanabilir
 LEARNING_RATE = 1e-4
 
+# ========================== WoodDataset TANIMI ==========================
+
 class WoodDataset(Dataset):
     def __init__(self, image_paths, transform=None, is_test_defect=False, ground_truth_dir=None):
         """
@@ -106,8 +108,9 @@ transform = transforms.Compose([
     # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # ImageNet istatistikleri
 ])
 
-# Veri Yükleyicilerin Oluşturulması
+# ========================== VERİ YÜKLEYİCİLERİ ==========================
 
+# Veri Yükleyicilerin Oluşturulması
 def get_image_paths(directory, extensions=('.jpg', '.jpeg', '.png')):
     """Belirtilen dizindeki tüm resim dosyalarının yollarını alır."""
     paths = []
@@ -196,6 +199,7 @@ else:
     print("Gösterilecek veri bulunamadı. Lütfen DATASET_PATH'i kontrol edin.")
 
 # ========================== MODELLER ==========================
+
 # 1. Autoencoder Modeli (Basitleştirilmiş)
 class Autoencoder(nn.Module):
     def __init__(self):
@@ -311,6 +315,8 @@ optimizers = {
 
 print("Modeller, kayıp fonksiyonları ve optimizatörler hazır.")
 
+# ========================== MODELLERİN EĞİTİMİ ==========================
+
 def train_model(model, model_name, train_loader, criterion, optimizer, num_epochs=EPOCHS):
     print(f"--- {model_name} Modeli Eğitimi Başlıyor ---")
     model.train()
@@ -377,9 +383,12 @@ if len(train_loader.dataset) > 0:
 else:
     print("Eğitim verisi olmadığından modeller eğitilemedi.")
 
-from sklearn.metrics import roc_curve, auc, precision_recall_curve
+# ========================== MODELLERİN DEĞERLENDİRİLMESİ ==========================
 
-def evaluate_model(model, model_name, test_good_loader, test_defect_loader, criterion, device):
+from sklearn.metrics import roc_curve, auc, precision_recall_curve
+import matplotlib.pyplot as plt
+
+def evaluate_model(model, model_name, test_good_loader, test_defect_loader, criterion, device, debug_thresholds=False):
     print(f"--- {model_name} Modeli Değerlendirmesi Başlıyor ---")
     model.eval()
     all_scores, all_labels, all_image_paths = [], [], []
@@ -416,6 +425,15 @@ def evaluate_model(model, model_name, test_good_loader, test_defect_loader, crit
                 defect_image_paths.extend(paths)
                 defect_gt_masks_list.extend([m.cpu() for m in gt_masks])
                 defect_pred_anomaly_maps_list.extend([am.cpu() for am in anomaly_maps_single_channel])
+
+                # Debug: Kontrol amaçlı ilk örneğe bakalım
+                if len(defect_gt_masks_list) == 1:  # İlk örnek için
+                    print(f"Ground Truth Mask İstatistikleri: Min={gt_masks[0].min().item():.4f}, "
+                          f"Max={gt_masks[0].max().item():.4f}, Mean={gt_masks[0].mean().item():.4f}, "
+                          f"Sum={gt_masks[0].sum().item():.4f}, Shape={gt_masks[0].shape}")
+                    print(f"Anomali Haritası İstatistikleri: Min={anomaly_maps_single_channel[0].min().item():.4f}, "
+                          f"Max={anomaly_maps_single_channel[0].max().item():.4f}, "
+                          f"Mean={anomaly_maps_single_channel[0].mean().item():.4f}, Shape={anomaly_maps_single_channel[0].shape}")
     else:
         print(f"Uyarı: {model_name} için kusurlu test verisi bulunamadı. F1 ve IoU etkilenebilir.")
 
@@ -444,30 +462,106 @@ def evaluate_model(model, model_name, test_good_loader, test_defect_loader, crit
         # Sadece tek bir sınıf varsa, F1 ve ROC AUC anlamlı olmayabilir.
         # Bu durumda eşiği medyan olarak bırakabiliriz.
 
-    # IoU Hesaplaması
+    # IoU Hesaplaması - Farklı eşiklerle test edilecek
     iou_scores = []
     all_pred_masks_for_iou_vis = []
+
+    # Eşik değerlerini test etmek için
+    thresholds_to_test = []
+    threshold_results = {}
+
+    if debug_thresholds:
+        # Anomali haritalarının değer aralığı için
+        anomaly_map_min = float('inf')
+        anomaly_map_max = float('-inf')
+        for am in defect_pred_anomaly_maps_list:
+            anomaly_map_min = min(anomaly_map_min, am.min().item())
+            anomaly_map_max = max(anomaly_map_max, am.max().item())
+
+        # Min/max değerlere göre test eşiklerini belirle
+        print(f"Anomali haritası değer aralığı: [{anomaly_map_min:.6f}, {anomaly_map_max:.6f}]")
+        thresholds_to_test = np.linspace(anomaly_map_min, anomaly_map_max * 0.8, num=10).tolist()
+        thresholds_to_test.extend([best_threshold_f1])  # F1'e göre belirlenen eşiği de ekle
+        thresholds_to_test = sorted(set(thresholds_to_test))  # Unique ve sıralı
+
+        threshold_results = {t: [] for t in thresholds_to_test}
+
     if defect_pred_anomaly_maps_list:
         for i in range(len(defect_pred_anomaly_maps_list)):
             pred_map_tensor = defect_pred_anomaly_maps_list[i]
             gt_mask_tensor = defect_gt_masks_list[i]
+
+            # Eşik değişimleriyle IoU testleri
+            if debug_thresholds:
+                for threshold in thresholds_to_test:
+                    pred_mask_binary = (pred_map_tensor > threshold).float()
+                    pred_flat = pred_mask_binary.flatten().cpu().numpy().astype(int)
+                    gt_flat = gt_mask_tensor.flatten().cpu().numpy().astype(int)
+
+                    # IoU hesaplaması
+                    if np.sum(gt_flat) == 0 and np.sum(pred_flat) == 0:
+                        iou = 1.0
+                    elif np.sum(gt_flat) == 0 and np.sum(pred_flat) > 0:
+                        iou = 0.0
+                    else:
+                        iou = jaccard_score(gt_flat, pred_flat, average='binary', zero_division=0)
+
+                    threshold_results[threshold].append(iou)
+
+                    # Debug için bazı istatistikler
+                    if i == 0 and threshold == thresholds_to_test[0]:  # İlk görüntü ilk eşik
+                        print(f"GT Mask nonzeros: {np.sum(gt_flat)}, "
+                              f"Pred Mask ({threshold:.6f}) nonzeros: {np.sum(pred_flat)}")
+
+            # Normal IoU hesaplaması (best_threshold_f1 ile)
             pred_mask_binary = (pred_map_tensor > best_threshold_f1).float()
             all_pred_masks_for_iou_vis.append(pred_mask_binary.cpu())
             pred_flat = pred_mask_binary.flatten().cpu().numpy().astype(int)
             gt_flat = gt_mask_tensor.flatten().cpu().numpy().astype(int)
-            if np.sum(gt_flat) == 0 and np.sum(pred_flat) == 0: iou = 1.0
-            elif np.sum(gt_flat) == 0 and np.sum(pred_flat) > 0: iou = 0.0
-            else: iou = jaccard_score(gt_flat, pred_flat, average='binary', zero_division=0)
+
+            if np.sum(gt_flat) == 0 and np.sum(pred_flat) == 0:
+                iou = 1.0
+            elif np.sum(gt_flat) == 0 and np.sum(pred_flat) > 0:
+                iou = 0.0
+            else:
+                iou = jaccard_score(gt_flat, pred_flat, average='binary', zero_division=0)
+
             iou_scores.append(iou)
+
+        # Farklı eşikler için ortalama IoU değerlerini göster
+        if debug_thresholds:
+            avg_ious = {t: np.mean(scores) for t, scores in threshold_results.items()}
+            best_threshold = max(avg_ious.items(), key=lambda x: x[1])
+
+            print("\n--- FARKLI EŞİKLERİN IoU DEĞERLERİ ---")
+            print(f"{'Eşik':<12} | {'Ortalama IoU':<15}")
+            print("-" * 30)
+            for threshold, avg_iou in sorted(avg_ious.items()):
+                print(f"{threshold:<12.6f} | {avg_iou:<15.4f}")
+            print(f"\nEn İyi IoU Eşiği: {best_threshold[0]:.6f} (IoU: {best_threshold[1]:.4f})")
+
+            # IoU vs Threshold grafiği
+            plt.figure(figsize=(10, 5))
+            plt.plot(list(avg_ious.keys()), list(avg_ious.values()), 'o-', marker='o')
+            plt.axvline(x=best_threshold_f1, color='r', linestyle='--', label=f'F1 Eşiği: {best_threshold_f1:.6f}')
+            plt.axvline(x=best_threshold[0], color='g', linestyle='--', label=f'En İyi IoU Eşiği: {best_threshold[0]:.6f}')
+            plt.xlabel('Eşik Değeri')
+            plt.ylabel('Ortalama IoU')
+            plt.title(f'{model_name} - IoU vs Eşik Değeri')
+            plt.grid(True)
+            plt.legend()
+            plt.show()
+
         avg_iou = np.mean(iou_scores) if iou_scores else 0
-        print(f"Ortalama IoU (Kusurlu Örnekler): {avg_iou:.4f}")
+        print(f"Ortalama IoU (Kusurlu Örnekler, F1 eşiği ile): {avg_iou:.4f}")
     else:
         avg_iou = 0
         print("IoU için kusurlu örnek/tahmin haritası yok.")
 
-    # Görselleştirme (birkaç örnek)
+    # Detaylı Görselleştirme (birkaç örnek)
     num_samples_to_show = min(3, len(defect_pred_anomaly_maps_list))
     if num_samples_to_show > 0:
+        # 1. Normal görselleştirme
         fig, axes = plt.subplots(num_samples_to_show, 4, figsize=(12, 3 * num_samples_to_show))
         if num_samples_to_show == 1: axes = np.array([axes]) # Tek satırsa 2D yap
         fig.suptitle(f"{model_name} - Anomali Tespiti (Eşik: {best_threshold_f1:.3f})", fontsize=14)
@@ -481,6 +575,60 @@ def evaluate_model(model, model_name, test_good_loader, test_defect_loader, crit
             axes[i, 1].imshow(anomaly_map_vis, cmap='jet'); axes[i, 1].set_title("Anomali Haritası"); axes[i, 1].axis('off')
             axes[i, 2].imshow(pred_mask_vis, cmap='gray'); axes[i, 2].set_title(f"Tahmin (IoU: {iou_scores[i]:.2f})"); axes[i, 2].axis('off')
             axes[i, 3].imshow(gt_mask_vis, cmap='gray'); axes[i, 3].set_title("Ground Truth"); axes[i, 3].axis('off')
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+        plt.show()
+
+        # 2. IoU kontrol görselleştirmesi (tahmin ve ground truth'un çakışması)
+        fig, axes = plt.subplots(num_samples_to_show, 3, figsize=(12, 3 * num_samples_to_show))
+        if num_samples_to_show == 1: axes = np.array([axes]) # Tek satırsa 2D yap
+        fig.suptitle(f"{model_name} - IoU Kontrol Görselleştirmesi", fontsize=14)
+
+        for i in range(num_samples_to_show):
+            gt_mask_vis = defect_gt_masks_list[i].squeeze().cpu().numpy()
+
+            # Farklı eşik değerleriyle maskeleri oluşturup görselleştir
+            pred_map = defect_pred_anomaly_maps_list[i].squeeze().cpu().numpy()
+
+            # F1 eşiği ile maske
+            pred_mask_f1 = (pred_map > best_threshold_f1).astype(float)
+
+            # Manuel olarak daha düşük bir eşik deneyelim
+            low_threshold = best_threshold_f1 / 10
+            pred_mask_low = (pred_map > low_threshold).astype(float)
+
+            # Çakışma görselleştirmesi
+            overlap_f1 = np.zeros((gt_mask_vis.shape[0], gt_mask_vis.shape[1], 3))
+            overlap_low = np.zeros((gt_mask_vis.shape[0], gt_mask_vis.shape[1], 3))
+
+            # Kırmızı: Ground Truth, Yeşil: Tahmin, Sarı: Çakışma
+            overlap_f1[:,:,0] = gt_mask_vis  # Kırmızı kanal (GT)
+            overlap_f1[:,:,1] = pred_mask_f1  # Yeşil kanal (tahmin)
+
+            overlap_low[:,:,0] = gt_mask_vis  # Kırmızı kanal (GT)
+            overlap_low[:,:,1] = pred_mask_low  # Yeşil kanal (tahmin)
+
+            # Ground Truth içindeki piksel sayısı
+            gt_pixels = np.sum(gt_mask_vis)
+            # Her bir eşik için tahmin edilen piksel sayısı
+            pred_f1_pixels = np.sum(pred_mask_f1)
+            pred_low_pixels = np.sum(pred_mask_low)
+            # Her bir eşik için çakışan piksel sayısı
+            overlap_f1_pixels = np.sum(np.logical_and(gt_mask_vis, pred_mask_f1))
+            overlap_low_pixels = np.sum(np.logical_and(gt_mask_vis, pred_low_pixels))
+
+            # Görselleştirme ve piksel sayılarını göster
+            axes[i, 0].imshow(gt_mask_vis, cmap='gray')
+            axes[i, 0].set_title(f"GT Mask (Piksel: {gt_pixels})")
+            axes[i, 0].axis('off')
+
+            axes[i, 1].imshow(overlap_f1)
+            axes[i, 1].set_title(f"Çakışma - F1 Eşik:{best_threshold_f1:.5f}\nTah:{pred_f1_pixels}, Çak:{overlap_f1_pixels}")
+            axes[i, 1].axis('off')
+
+            axes[i, 2].imshow(overlap_low)
+            axes[i, 2].set_title(f"Çakışma - Düşük Eşik:{low_threshold:.5f}\nTah:{pred_low_pixels}, Çak:{overlap_low_pixels}")
+            axes[i, 2].axis('off')
+
         plt.tight_layout(rect=[0, 0, 1, 0.96])
         plt.show()
 
@@ -500,11 +648,14 @@ else:
             print(f"Uyarı: {model_name} geçerli bir model değil. Değerlendirme atlanıyor.")
             continue
 
+        print(f"\nModel: {model_name} için IoU debug modu etkinleştiriliyor...")
         f1, roc_auc, iou, threshold = evaluate_model(model_instance, model_name,
                                               test_good_loader, test_defect_loader,
-                                              criterions[model_name], device)
+                                              criterions[model_name], device, debug_thresholds=True)
         evaluation_results[model_name] = {"F1_Score": f1, "ROC_AUC": roc_auc, "Avg_IoU": iou, "Best_Threshold": threshold}
         print(f"{model_name} Sonuç: F1={f1:.4f}, ROC_AUC={roc_auc:.4f}, Avg_IoU={iou:.4f}, Eşik={threshold:.6f}")
+
+# ========================== MODEL DEĞERLENDİRME ÖZETİ ==========================
 
 import pandas as pd
 
@@ -522,6 +673,8 @@ print("\nÇalışma tamamlandı.")
 # torch.cuda.empty_cache()
 
 
+
+# ========================== VERİ YOLU VE MASKE KONTROLÜ ==========================
 
 # Google Drive'daki yolların kontrolü
 
