@@ -672,7 +672,173 @@ print("\nÇalışma tamamlandı.")
 # gc.collect()
 # torch.cuda.empty_cache()
 
+# ========================== IoU DEBUG İÇİN EK ANALİZ ==========================
 
+def debug_iou_problem():
+    print("\n===== IoU SORUNU ANALİZİ =====")
+
+    # Ground truth maskeleri ve veri yolu sorunlarını kontrol et
+    test_defect_dir = os.path.join(DATASET_PATH, "test", "defect")
+    ground_truth_dir = os.path.join(DATASET_PATH, "ground_truth", "defect")
+
+    if not os.path.exists(test_defect_dir):
+        print(f"HATA: Test defect dizini bulunamadı: {test_defect_dir}")
+        return
+
+    if not os.path.exists(ground_truth_dir):
+        print(f"HATA: Ground truth dizini bulunamadı: {ground_truth_dir}")
+        return
+
+    # Bir örnek test görüntüsü ve maskesini al
+    for model_name, model in models_dict.items():
+        print(f"\n>> {model_name} için anomali haritası ve maske analizi <<")
+        model.eval()
+
+        with torch.no_grad():
+            for images, gt_masks, paths in test_defect_loader:
+                if images.size(0) == 0:
+                    print("Batch'te görüntü yok!")
+                    continue
+
+                # İlk görüntüyü al
+                image = images[0:1].to(device)
+                gt_mask = gt_masks[0:1]
+                img_path = paths[0]
+
+                # Anomali haritası oluştur
+                reconstructed = model(image)
+                anomaly_map_batch = F.mse_loss(reconstructed, image, reduction='none')
+                anomaly_map = torch.mean(anomaly_map_batch, dim=1, keepdim=True)
+
+                # İstatistikleri topla
+                anomaly_min = anomaly_map.min().item()
+                anomaly_max = anomaly_map.max().item()
+                anomaly_mean = anomaly_map.mean().item()
+
+                gt_min = gt_mask.min().item()
+                gt_max = gt_mask.max().item()
+                gt_nonzeros = (gt_mask > 0).sum().item()
+                total_pixels = gt_mask.numel()
+
+                # Ground truth dosya adı kontrolü
+                img_filename = os.path.basename(img_path)
+                base_name = os.path.splitext(img_filename)[0]
+
+                possible_mask_names = [
+                    f"{base_name}.png",
+                    f"{base_name}.jpg",
+                    f"{base_name}_mask.png",
+                    f"{base_name}_mask.jpg"
+                ]
+
+                found_mask_file = None
+                for mask_name in possible_mask_names:
+                    mask_path = os.path.join(ground_truth_dir, mask_name)
+                    if os.path.exists(mask_path):
+                        found_mask_file = mask_path
+                        break
+
+                # Sonuçları yazdır
+                print(f"Görüntü: {img_filename}")
+                print(f"GT Mask nonzero pikseller: {gt_nonzeros}/{total_pixels} ({gt_nonzeros/total_pixels*100:.2f}%)")
+                print(f"GT Maske değer aralığı: [{gt_min:.4f}, {gt_max:.4f}]")
+                print(f"Anomali haritası değer aralığı: [{anomaly_min:.6f}, {anomaly_max:.6f}], Ort: {anomaly_mean:.6f}")
+
+                if found_mask_file:
+                    print(f"Bulunan maske dosyası: {os.path.basename(found_mask_file)}")
+                else:
+                    print(f"DİKKAT: Maske dosyası bulunamadı!")
+                    possible_files = os.listdir(ground_truth_dir)[:5] if os.path.exists(ground_truth_dir) else []
+                    print(f"Ground truth dizinindeki ilk dosyalar: {possible_files}")
+
+                # Farklı eşik değerleri ile IoU hesaplaması
+                print("\nFarklı eşik değerleri ile IoU:")
+
+                anomaly_cpu = anomaly_map[0, 0].cpu().numpy()
+                gt_cpu = gt_mask[0, 0].cpu().numpy()
+
+                # Daha akıllı bir eşik stratejisi deneyelim
+                percentiles = [50, 75, 90, 95, 97, 98, 99]
+                for p in percentiles:
+                    threshold = np.percentile(anomaly_cpu, p)
+                    pred_mask = (anomaly_cpu > threshold).astype(np.int32)
+
+                    if np.sum(gt_cpu) == 0:
+                        print(f"UYARI: GT maskesi boş!")
+                        iou = 0 if np.sum(pred_mask) > 0 else 1
+                    else:
+                        intersection = np.logical_and(pred_mask, gt_cpu).sum()
+                        union = np.logical_or(pred_mask, gt_cpu).sum()
+                        iou = intersection / union if union > 0 else 0
+
+                    print(f"Eşik (p{p}): {threshold:.6f}, IoU: {iou:.4f}, "
+                          f"Pozitif pikseller: {np.sum(pred_mask)}/{pred_mask.size}")
+
+                # Görselleştirme
+                plt.figure(figsize=(15, 5))
+
+                plt.subplot(1, 4, 1)
+                plt.title("Orijinal Görüntü")
+                plt.imshow(image[0].permute(1, 2, 0).cpu().numpy())
+                plt.axis('off')
+
+                plt.subplot(1, 4, 2)
+                plt.title("Ground Truth Maske")
+                plt.imshow(gt_mask[0, 0].cpu().numpy(), cmap='gray')
+                plt.axis('off')
+
+                plt.subplot(1, 4, 3)
+                plt.title("Anomali Haritası")
+                plt.imshow(anomaly_cpu, cmap='jet')
+                plt.colorbar(fraction=0.046, pad=0.04)
+                plt.axis('off')
+
+                # En iyi IoU eşiği ile maske
+                best_threshold = np.percentile(anomaly_cpu, 97)  # 97. yüzdelik deneyelim
+                pred_mask = (anomaly_cpu > best_threshold).astype(np.int32)
+
+                plt.subplot(1, 4, 4)
+                plt.title(f"Tahmin Maskesi (Eşik: {best_threshold:.4f})")
+                plt.imshow(pred_mask, cmap='gray')
+                plt.axis('off')
+
+                plt.tight_layout()
+                plt.show()
+
+                # Birkaç farklı eşik değeri ile sonuçları göster
+                plt.figure(figsize=(15, 4))
+                thresholds = [
+                    np.percentile(anomaly_cpu, 90),
+                    np.percentile(anomaly_cpu, 95),
+                    np.percentile(anomaly_cpu, 98)
+                ]
+
+                for i, thresh in enumerate(thresholds):
+                    plt.subplot(1, 3, i+1)
+                    pred = (anomaly_cpu > thresh).astype(np.float32)
+
+                    # Çakışma görselleştirmesi
+                    overlap = np.zeros((anomaly_cpu.shape[0], anomaly_cpu.shape[1], 3))
+                    overlap[:,:,0] = gt_cpu  # Kırmızı kanal (GT)
+                    overlap[:,:,1] = pred    # Yeşil kanal (tahmin)
+
+                    intersection = np.logical_and(pred, gt_cpu).sum()
+                    union = np.logical_or(pred, gt_cpu).sum()
+                    iou = intersection / union if union > 0 else 0
+
+                    plt.imshow(overlap)
+                    plt.title(f"Eşik: {thresh:.4f}, IoU: {iou:.4f}")
+                    plt.axis('off')
+
+                plt.tight_layout()
+                plt.show()
+
+                break  # Sadece ilk görüntüyü analiz et
+
+            break  # Sadece ilk batch'i analiz et
+
+# Analiz fonksiyonunu çağır
+debug_iou_problem()
 
 # ========================== VERİ YOLU VE MASKE KONTROLÜ ==========================
 
