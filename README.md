@@ -12,6 +12,11 @@ Modeller yalnızca "good" (kusursuz) görüntülerle eğitilmiş ve test aşamas
 
 ## 📁 Veri Seti Yapısı
 
+Veri setine doğrudan aşağıdaki Google Drive bağlantısından erişebilirsiniz:
+
+📂 [Veri Setine Git (Google Drive)](https://drive.google.com/drive/folders/1AJOXfDRMEuOcpHXYtXIcMoS9IXTyfhuK?usp=sharing)
+
+Veri klasör yapısı:
 ```
 wood/
 ├── train/
@@ -22,6 +27,7 @@ wood/
 └── ground_truth/
     └── defect/
 ```
+> İndirdikten sonra klasörü kendi Google Drive'ınıza yüklemeniz ve kodda `DATASET_PATH` değişkenini güncellemeniz gerekir.
 
 ## ⚙️ Kurulum
 
@@ -36,12 +42,20 @@ pip install -r requirements.txt
 
 ## 🚀 Kullanım
 
+Colab notebook dosyasını açın.
+
 ```bash
-# Eğitim ve test işlemleri için:
-python main.py
+# Google Drive’ınızı bağlayın:
+from google.colab import drive
+drive.mount('/content/drive')
 ```
 
-> Veri yollarını kod içinden doğru şekilde ayarlamayı unutmayın (`config.py` veya ilgili script içinde).
+```bash
+# Veri yolu olarak şu klasörü kullanın:
+/content/drive/MyDrive/wood_dataset/wood
+```
+
+> Veri yollarını kod içinden doğru şekilde ayarlamayı unutmayın.
 
 ## 📊 Performans Sonuçları
 
