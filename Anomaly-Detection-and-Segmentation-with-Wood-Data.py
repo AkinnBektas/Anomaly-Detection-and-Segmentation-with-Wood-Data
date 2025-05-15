@@ -36,7 +36,7 @@ IMG_SIZE = (256, 256)
 
 # Eğitim parametreleri
 BATCH_SIZE = 16 # Bellek durumuna göre ayarlanabilir
-EPOCHS = 70 # Örnek bir değer, model ve veri setine göre ayarlanabilir
+EPOCHS = 80 # Örnek bir değer, model ve veri setine göre ayarlanabilir
 LEARNING_RATE = 1e-4
 
 # ========================== WoodDataset TANIMI ==========================
