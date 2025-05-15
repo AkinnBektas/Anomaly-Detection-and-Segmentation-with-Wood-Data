@@ -36,7 +36,7 @@ IMG_SIZE = (256, 256)
 
 # Eğitim parametreleri
 BATCH_SIZE = 16 # Bellek durumuna göre ayarlanabilir
-EPOCHS = 60 # Örnek bir değer, model ve veri setine göre ayarlanabilir
+EPOCHS = 70 # Örnek bir değer, model ve veri setine göre ayarlanabilir
 LEARNING_RATE = 1e-4
 
 # ========================== WoodDataset TANIMI ==========================
@@ -678,47 +678,6 @@ print("\nÇalışma tamamlandı.")
 # torch.cuda.empty_cache()
 
 
-
-from PIL import Image
-import matplotlib.pyplot as plt
-
-mask_path = os.path.join(ground_truth_dir, "100000020_mask.jpg")
-mask = Image.open(mask_path)
-plt.imshow(mask)
-plt.title("Orijinal Maske Dosyası")
-plt.colorbar()
-plt.show()
-
-# Değer aralığını kontrol et
-mask_array = np.array(mask)
-print(f"Maske değer aralığı: {mask_array.min()} - {mask_array.max()}")
-print(f"Toplam piksel sayısı: {mask_array.size}, Sıfır olmayan piksel sayısı: {np.count_nonzero(mask_array)}")
-
-if mask_path:
-    mask = Image.open(mask_path).convert("L")
-    mask_array = np.array(mask)
-    print(f"Orijinal maske değer aralığı: {mask_array.min()} - {mask_array.max()}")
-
-    # Eğer maske değerleri [0-255] aralığındaysa, normalize etmeyin
-    mask_transform = transforms.Compose([
-        transforms.Resize(IMG_SIZE, interpolation=transforms.InterpolationMode.NEAREST),
-        transforms.ToTensor()
-    ])
-    mask_tensor = mask_transform(mask)
-
-    # 0.1 gibi daha düşük bir eşik deneyin
-    mask_tensor = (mask_tensor > 0.1).float()
-
-test_defect_paths_sample = test_defect_paths[:5]  # İlk 5 örnek
-for img_path in test_defect_paths_sample:
-    base_filename = os.path.basename(img_path)
-    mask_path = os.path.join(ground_truth_defect_dir, os.path.splitext(base_filename)[0] + "_mask.jpg")
-
-    if os.path.exists(mask_path):
-        mask = np.array(Image.open(mask_path).convert("L"))
-        print(f"{os.path.basename(mask_path)}: Min={mask.min()}, Max={mask.max()}, NonZero={np.count_nonzero(mask)}/{mask.size}")
-    else:
-        print(f"{os.path.basename(img_path)} için maske bulunamadı.")
 
 # ========================== IoU DEBUG İÇİN EK ANALİZ ==========================
 
