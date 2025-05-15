@@ -7,6 +7,11 @@ Original file is located at
     https://colab.research.google.com/drive/1ti9Tfcuedg7r3nv2BL8ivgRbwwaqXY6L
 """
 
+# ========================== GEREKLİ KÜTÜPHANELERİN YÜKLENMESİ ==========================
+# Aşağıdaki komutu çalıştırarak ya da pip install -r requirements.txt yaparak gerekli kütüphaneleri yükleyebilirsiniz:
+# pip install torch==2.0.1 torchvision==0.15.2 opencv-python==4.8.0.76 numpy==1.24.3 \
+#             matplotlib==3.7.1 Pillow==9.5.0 scikit-learn==1.3.0
+
 # ========================== KÜTÜPHANELER ==========================
 import os
 import cv2
@@ -34,7 +39,7 @@ IMG_SIZE = (256, 256)
 
 # Eğitim parametreleri
 BATCH_SIZE = 16 # Bellek durumuna göre ayarlanabilir
-EPOCHS = 90 # Örnek bir değer, model ve veri setine göre ayarlanabilir
+EPOCHS = 90
 LEARNING_RATE = 1e-4
 
 # ========================== WoodDataset TANIMI ==========================
