@@ -7,8 +7,6 @@ Original file is located at
     https://colab.research.google.com/drive/1ti9Tfcuedg7r3nv2BL8ivgRbwwaqXY6L
 """
 
-
-
 # ========================== KÜTÜPHANELER ==========================
 import os
 import cv2
@@ -36,7 +34,7 @@ IMG_SIZE = (256, 256)
 
 # Eğitim parametreleri
 BATCH_SIZE = 16 # Bellek durumuna göre ayarlanabilir
-EPOCHS = 80 # Örnek bir değer, model ve veri setine göre ayarlanabilir
+EPOCHS = 90 # Örnek bir değer, model ve veri setine göre ayarlanabilir
 LEARNING_RATE = 1e-4
 
 # ========================== WoodDataset TANIMI ==========================
