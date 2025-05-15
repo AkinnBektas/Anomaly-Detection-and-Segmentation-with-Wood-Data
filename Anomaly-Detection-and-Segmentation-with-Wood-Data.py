@@ -7,6 +7,8 @@ Original file is located at
     https://colab.research.google.com/drive/1ti9Tfcuedg7r3nv2BL8ivgRbwwaqXY6L
 """
 
+
+
 # ========================== KÜTÜPHANELER ==========================
 import os
 import cv2
@@ -20,7 +22,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, models
-
+from google.colab import drive
 from sklearn.metrics import f1_score, jaccard_score # IoU için jaccard_score kullanılır
 
 # ========================== GOOGLE DRIVE BAĞLANTISI ==========================
@@ -34,7 +36,7 @@ IMG_SIZE = (256, 256)
 
 # Eğitim parametreleri
 BATCH_SIZE = 16 # Bellek durumuna göre ayarlanabilir
-EPOCHS = 50 # Örnek bir değer, model ve veri setine göre ayarlanabilir
+EPOCHS = 60 # Örnek bir değer, model ve veri setine göre ayarlanabilir
 LEARNING_RATE = 1e-4
 
 # ========================== WoodDataset TANIMI ==========================
@@ -674,8 +676,6 @@ print("\nÇalışma tamamlandı.")
 # import gc
 # gc.collect()
 # torch.cuda.empty_cache()
-
-
 
 
 
